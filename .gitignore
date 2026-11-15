@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Virtual environments (run.bat creates .venv)
+.venv/
+venv/
+env/
+
+# Datasets: download HAM10000 separately (see README)
+data/
+HAM10000_images*/
+*.npz
+
+# Model checkpoints: ignore training outputs, but keep the demo model
+*.pt
+*.pth
+!model/best.pt
+
+# Gradio runtime files
+.gradio/
+flagged/
+
+# Archives
+*.zip
+
+# Secrets
+.env
+kaggle.json
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

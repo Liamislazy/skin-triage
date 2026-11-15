@@ -1,0 +1,217 @@
+{
+  "test": {
+    "balanced_accuracy": 0.6480372982526345,
+    "macro_f1": 0.6437139808121396,
+    "accuracy": 0.648578811369509,
+    "melanoma_recall": 0.6805555555555556,
+    "melanoma_auc": 0.8802910052910053,
+    "melanoma_recall_at_threshold": 0.9583333333333334,
+    "melanoma_threshold": 0.05,
+    "suspicious_auc": 0.8944613680420936
+  },
+  "per_class": {
+    "akiec": {
+      "precision": 0.6060606060606061,
+      "recall": 0.5714285714285714,
+      "f1-score": 0.5882352941176471,
+      "support": 35.0
+    },
+    "bcc": {
+      "precision": 0.7380952380952381,
+      "recall": 0.62,
+      "f1-score": 0.6739130434782609,
+      "support": 50.0
+    },
+    "bkl": {
+      "precision": 0.5571428571428572,
+      "recall": 0.609375,
+      "f1-score": 0.582089552238806,
+      "support": 64.0
+    },
+    "df": {
+      "precision": 0.625,
+      "recall": 0.5882352941176471,
+      "f1-score": 0.6060606060606061,
+      "support": 17.0
+    },
+    "mel": {
+      "precision": 0.5,
+      "recall": 0.6805555555555556,
+      "f1-score": 0.5764705882352941,
+      "support": 72.0
+    },
+    "nv": {
+      "precision": 0.819047619047619,
+      "recall": 0.6666666666666666,
+      "f1-score": 0.7350427350427351,
+      "support": 129.0
+    },
+    "vasc": {
+      "precision": 0.6956521739130435,
+      "recall": 0.8,
+      "f1-score": 0.7441860465116279,
+      "support": 20.0
+    },
+    "accuracy": 0.648578811369509,
+    "macro avg": {
+      "precision": 0.6487140706084806,
+      "recall": 0.6480372982526345,
+      "f1-score": 0.6437139808121396,
+      "support": 387.0
+    },
+    "weighted avg": {
+      "precision": 0.6717550705670018,
+      "recall": 0.648578811369509,
+      "f1-score": 0.653877946299822,
+      "support": 387.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      20,
+      2,
+      2,
+      1,
+      10,
+      0,
+      0
+    ],
+    [
+      8,
+      31,
+      1,
+      2,
+      4,
+      1,
+      3
+    ],
+    [
+      2,
+      2,
+      39,
+      1,
+      12,
+      8,
+      0
+    ],
+    [
+      1,
+      2,
+      2,
+      10,
+      1,
+      1,
+      0
+    ],
+    [
+      1,
+      4,
+      10,
+      0,
+      49,
+      8,
+      0
+    ],
+    [
+      1,
+      1,
+      16,
+      0,
+      21,
+      86,
+      4
+    ],
+    [
+      0,
+      0,
+      0,
+      2,
+      1,
+      1,
+      16
+    ]
+  ],
+  "history": [
+    {
+      "balanced_accuracy": 0.4680910409035409,
+      "macro_f1": 0.4291988494278985,
+      "accuracy": 0.5090439276485789,
+      "melanoma_recall": 0.4166666666666667,
+      "melanoma_auc": 0.7693121693121694,
+      "epoch": 1,
+      "train_loss": 3.622674745321274,
+      "seconds": 132
+    },
+    {
+      "balanced_accuracy": 0.5935782967032968,
+      "macro_f1": 0.5766474679272563,
+      "accuracy": 0.5917312661498708,
+      "melanoma_recall": 0.5972222222222222,
+      "melanoma_auc": 0.7769400352733686,
+      "epoch": 2,
+      "train_loss": 1.8378744264443716,
+      "seconds": 134
+    },
+    {
+      "balanced_accuracy": 0.6753170787545788,
+      "macro_f1": 0.6705357945851207,
+      "accuracy": 0.6692506459948321,
+      "melanoma_recall": 0.6388888888888888,
+      "melanoma_auc": 0.8138007054673722,
+      "epoch": 3,
+      "train_loss": 1.359329210718473,
+      "seconds": 126
+    },
+    {
+      "balanced_accuracy": 0.6490808150183149,
+      "macro_f1": 0.6357309666557894,
+      "accuracy": 0.6511627906976745,
+      "melanoma_recall": 0.5833333333333334,
+      "melanoma_auc": 0.8208994708994708,
+      "epoch": 4,
+      "train_loss": 1.1169216255346934,
+      "seconds": 127
+    },
+    {
+      "balanced_accuracy": 0.6708867521367522,
+      "macro_f1": 0.6704818255265159,
+      "accuracy": 0.6795865633074936,
+      "melanoma_recall": 0.6805555555555556,
+      "melanoma_auc": 0.8348765432098766,
+      "epoch": 5,
+      "train_loss": 0.9605935345093409,
+      "seconds": 128
+    },
+    {
+      "balanced_accuracy": 0.6853582875457876,
+      "macro_f1": 0.690718489535692,
+      "accuracy": 0.6925064599483204,
+      "melanoma_recall": 0.6388888888888888,
+      "melanoma_auc": 0.8411816578483245,
+      "epoch": 6,
+      "train_loss": 0.8803444931904475,
+      "seconds": 126
+    },
+    {
+      "balanced_accuracy": 0.7048485195360197,
+      "macro_f1": 0.7039628767960746,
+      "accuracy": 0.7080103359173127,
+      "melanoma_recall": 0.6666666666666666,
+      "melanoma_auc": 0.8523809523809524,
+      "epoch": 7,
+      "train_loss": 0.817310118675232,
+      "seconds": 128
+    },
+    {
+      "balanced_accuracy": 0.6971733821733822,
+      "macro_f1": 0.6983537716836153,
+      "accuracy": 0.7002583979328165,
+      "melanoma_recall": 0.6666666666666666,
+      "melanoma_auc": 0.8494268077601411,
+      "epoch": 8,
+      "train_loss": 0.7668479750553767,
+      "seconds": 132
+    }
+  ],
+  "best_epoch": 7
+}

@@ -22,7 +22,7 @@ from sklearn.metrics import (balanced_accuracy_score, classification_report,
 from sklearn.model_selection import StratifiedGroupKFold
 from torch.utils.data import DataLoader, Dataset
 
-from common import CLASSES, SUSPICIOUS, build_model, eval_transform, train_transform
+from common import CLASSES, SUSPICIOUS, build_model, eval_transform, train_transform, triage_tier
 
 
 # ---------------------------------------------------------------- data
@@ -99,6 +99,45 @@ def summarize(probs, labels):
     return m
 
 
+def majority_baseline(train_labels, test_labels):
+    """The simplest possible model: always predict the most common training class."""
+    majority = int(np.bincount(train_labels, minlength=len(CLASSES)).argmax())
+    probs = np.zeros((len(test_labels), len(CLASSES)))
+    probs[:, majority] = 1.0
+    m = summarize(probs, test_labels)
+    m.pop("melanoma_auc", None)  # a constant guess has no ranking, so AUC is meaningless
+    m["always_predicts"] = CLASSES[majority]
+    m["suspicious_recall"] = float(CLASSES[majority] in SUSPICIOUS)  # all or nothing
+    return m
+
+
+def error_report(probs, labels, mel_threshold):
+    """Missed cases vs false alarms, both for the top-1 label and for the app's triage tiers."""
+    susp_idx = [CLASSES.index(c) for c in SUSPICIOUS]
+    is_susp = np.isin(labels, susp_idx)
+    pred_susp = np.isin(probs.argmax(1), susp_idx)
+    tiers = np.array([triage_tier(dict(zip(CLASSES, p)), mel_threshold) for p in probs])
+    is_mel = labels == CLASSES.index("mel")
+
+    def share(mask, tier):
+        return float((tiers[mask] == tier).mean()) if mask.any() else None
+
+    groups = {"melanoma": is_mel, "other_suspicious": is_susp & ~is_mel, "benign": ~is_susp}
+    return {
+        "top1": {  # suspicious = the top class is mel, bcc or akiec
+            "suspicious_total": int(is_susp.sum()), "benign_total": int((~is_susp).sum()),
+            "missed_cases_fn": int((is_susp & ~pred_susp).sum()),
+            "false_alarms_fp": int((~is_susp & pred_susp).sum()),
+            "suspicious_recall": float(pred_susp[is_susp].mean()) if is_susp.any() else None,
+            "false_alarm_rate": float(pred_susp[~is_susp].mean()) if (~is_susp).any() else None,
+        },
+        # Share of each true group that lands in each tier of the app
+        "tiers": {g: {t: share(mask, t) for t in ("red", "amber", "green")} for g, mask in groups.items()},
+        "missed_cases_green_tier": int((is_susp & (tiers == "green")).sum()),
+        "false_alarms_red_tier": int((~is_susp & (tiers == "red")).sum()),
+    }, tiers
+
+
 def melanoma_threshold(probs, labels, target_recall=0.90):
     """Lowest-false-alarm P(melanoma) cut-off that still catches `target_recall` of melanomas."""
     mel = CLASSES.index("mel")
@@ -134,6 +173,10 @@ def main():
     train_df, val_df, test_df = split_by_lesion(df, args.seed)
     print(f"images: {len(df)} | train {len(train_df)} / val {len(val_df)} / test {len(test_df)}")
     print("train class counts:", train_df["dx"].value_counts().to_dict())
+    # Save which image went where, so demo images can be checked to come from the test split
+    pd.concat([d.assign(split=s)[["image_id", "lesion_id", "dx", "split"]]
+               for s, d in (("train", train_df), ("val", val_df), ("test", test_df))]
+              ).to_csv(args.out / "splits.csv", index=False)
 
     pin = device == "cuda"
     train_dl = DataLoader(LesionDataset(train_df, train_transform(args.img_size)), args.batch_size,
@@ -200,18 +243,38 @@ def main():
     tm["suspicious_auc"] = (float(roc_auc_score(np.isin(test_labels, susp), test_probs[:, susp].sum(1)))
                             if 0 < np.isin(test_labels, susp).sum() < len(test_labels) else None)
 
+    baseline = majority_baseline(train_df["label"].to_numpy(), test_labels)
+    errors, tiers = error_report(test_probs, test_labels, ckpt["mel_threshold"])
+
     report = classification_report(test_labels, test_probs.argmax(1), labels=range(len(CLASSES)),
                                    target_names=CLASSES, zero_division=0, output_dict=True)
     cm = confusion_matrix(test_labels, test_probs.argmax(1), labels=range(len(CLASSES))).tolist()
-    json.dump({"test": tm, "per_class": report, "confusion_matrix": cm, "history": history,
-               "best_epoch": ckpt["epoch"]}, open(args.out / "metrics.json", "w"), indent=2)
+    json.dump({"test": tm, "baseline": baseline, "errors": errors, "per_class": report,
+               "confusion_matrix": cm, "history": history, "best_epoch": ckpt["epoch"]},
+              open(args.out / "metrics.json", "w"), indent=2)
+
+    # One row per test image: use it to pick failure examples for the write-up and demo
+    preds = test_df[["image_id", "lesion_id", "dx"]].reset_index(drop=True).copy()
+    preds["predicted"] = [CLASSES[i] for i in test_probs.argmax(1)]
+    preds["tier"] = tiers
+    for i, c in enumerate(CLASSES):
+        preds[f"p_{c}"] = test_probs[:, i].round(4)
+    preds.to_csv(args.out / "test_predictions.csv", index=False)
 
     print("\n=== TEST (held-out lesions) ===")
     for k, v in tm.items():
         print(f"{k:32s} {v}")
+    print(f"\nbaseline (always '{baseline['always_predicts']}'): balanced acc "
+          f"{baseline['balanced_accuracy']:.3f} | accuracy {baseline['accuracy']:.3f} | "
+          f"melanoma recall {baseline['melanoma_recall']:.3f}")
+    t = errors["top1"]
+    print(f"missed suspicious lesions (top-1): {t['missed_cases_fn']}/{t['suspicious_total']} | "
+          f"false alarms: {t['false_alarms_fp']}/{t['benign_total']}")
+    for g, d in errors["tiers"].items():
+        print(f"tiers for {g:17s} " + " | ".join(f"{k} {v:.0%}" for k, v in d.items() if v is not None))
     print(classification_report(test_labels, test_probs.argmax(1), labels=range(len(CLASSES)),
                                 target_names=CLASSES, zero_division=0))
-    print(f"saved {args.out / 'best.pt'} and {args.out / 'metrics.json'}")
+    print(f"saved best.pt, metrics.json, test_predictions.csv and splits.csv to {args.out}")
 
 
 if __name__ == "__main__":

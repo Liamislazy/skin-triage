@@ -9,13 +9,11 @@ import gradio as gr
 import torch
 from PIL import Image
 
-from common import CLASS_NAMES, CLASSES, SUSPICIOUS, eval_transform, gradcam_layer, load_checkpoint
+from common import (CLASS_NAMES, SUSPICIOUS, eval_transform, gradcam_layer, load_checkpoint,
+                    triage_tier)
 from gradcam import GradCAM, overlay
 
-SUSPICIOUS_ALERT = 0.50   # P(any suspicious class) for the red tier
-MELANOMA_ALERT = 0.30     # P(melanoma) for the red tier
-SUSPICIOUS_CHECK = 0.20   # P(any suspicious class) for the amber tier
-# Amber also fires when P(melanoma) >= the checkpoint's tuned threshold (set for ~90% recall)
+# The red/amber/green thresholds live in common.py
 UNSURE = 0.50             # top-class probability below this = model is unsure
 
 TIERS = {
@@ -52,12 +50,7 @@ class Triage:
         p = dict(zip(self.classes, map(float, probs)))
 
         p_susp = sum(p[c] for c in SUSPICIOUS)
-        if p_susp >= SUSPICIOUS_ALERT or p["mel"] >= MELANOMA_ALERT:
-            tier = "red"
-        elif p["mel"] >= self.mel_threshold or p_susp >= SUSPICIOUS_CHECK:
-            tier = "amber"
-        else:
-            tier = "green"
+        tier = triage_tier(p, self.mel_threshold)
 
         # The model sees a centered square crop; show the heatmap on that same crop
         w, h = image.size

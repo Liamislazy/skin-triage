@@ -20,6 +20,22 @@ CLASS_NAMES = {
 # Classes that should send someone to a doctor
 SUSPICIOUS = ["mel", "bcc", "akiec"]
 
+# Triage thresholds (shared by app.py and train.py, so the reported tier numbers match the app)
+SUSPICIOUS_ALERT = 0.50   # P(any suspicious class) for the red tier
+MELANOMA_ALERT = 0.30     # P(melanoma) for the red tier
+SUSPICIOUS_CHECK = 0.20   # P(any suspicious class) for the amber tier
+# Amber also fires when P(melanoma) >= the checkpoint's tuned threshold (set for ~90% recall)
+
+
+def triage_tier(p: dict, mel_threshold: float) -> str:
+    """p maps class code -> probability. Returns "red", "amber" or "green"."""
+    p_susp = sum(p[c] for c in SUSPICIOUS)
+    if p_susp >= SUSPICIOUS_ALERT or p["mel"] >= MELANOMA_ALERT:
+        return "red"
+    if p["mel"] >= mel_threshold or p_susp >= SUSPICIOUS_CHECK:
+        return "amber"
+    return "green"
+
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 

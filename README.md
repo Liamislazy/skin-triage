@@ -30,6 +30,8 @@ Our own idea. Skin lesions are not one of the suggested projects in the briefs. 
 - Grad-CAM heatmaps
 - a **non-lesion check** that refuses photos that aren't dermatoscope images of a lesion
 - **calibrated probabilities** (temperature scaling) and **flip averaging** at prediction time
+- an **independent test** on the official ISIC 2018 test set (1,511 images from outside our dataset)
+- **our own question:** does it still work on ordinary phone photos, and on darker skin? We tested it on 2,298 smartphone photos labeled with Fitzpatrick skin type (PAD-UFES-20)
 
 ## How it works
 
@@ -97,22 +99,81 @@ The triage tiers are deliberately cautious: they turn most of the top-1 misses i
 
 **We also trained on the full dataset** (all 10,015 images, 224 px, Kaggle T4 GPU, about 17 minutes). It reached higher balanced accuracy (**0.75**) and fewer false alarms (14% of benign lesions to red), but sent **9% of melanomas to green**. Two-thirds of the full dataset is moles, so the model learned to call things benign more often, and the triage thresholds tuned for the subset no longer fit. Its calibration also got worse on our test set, which has more melanomas than the training data. We kept the subset model until the thresholds are re-tuned for the full-data model.
 
-**Limitations we could not test:**
+### Independent test: the official ISIC 2018 test set (1,511 new images)
 
-- **Skin tone.** HAM10000 has no skin-tone labels, and its images come mostly from clinics in Austria and Australia, so most patients have light skin. We expect the model to do worse on darker skin, which is common in Vietnam and many other places our user would work, but we could not measure it this weekend.
-- **Phone cameras.** We have not tested ordinary phone photos taken without a dermatoscope, and we expect them to work worse.
+All the numbers above come from HAM10000 images. To check that they hold up on images from outside our dataset, we scored the shipped v1.1 model, unchanged and exactly as the app predicts, on the **official ISIC 2018 Task 3 test set** (`evaluate_isic2018.py`).
+
+- **Never seen:** these images are kept separate from the 10,015 HAM10000 images, so no model of ours has seen them.
+- **Realistic mix:** 60% of them are moles, close to what a clinic sees.
+
+| ISIC 2018 test (1,511 images) | Baseline: always "mole" | v1.0 | **v1.1** |
+|---|---|---|---|
+| Balanced accuracy (7 classes) | 0.14 | 0.67 | **0.69** |
+| Accuracy | 0.60 | 0.65 | **0.71** |
+| Melanoma AUC | — | 0.87 | **0.89** |
+| Suspicious-vs-benign AUC | — | 0.88 | **0.90** |
+| Calibration error (ECE) | — | — | **0.03** |
+| Melanomas sent to 🟢 green | 100% | 4 of 171 | 6 of 171 (3.5%) |
+| Suspicious lesions sent to 🟢 green | 100% | 7 of 307 | 8 of 307 (2.6%) |
+| Benign lesions sent to 🔴 red | 0% | 22% | 26% |
+
+**The results carry over to new images.** Balanced accuracy, AUC and calibration are as good as on our own `test_fresh` set. The accuracy row shows why we don't rely on plain accuracy: always guessing "mole" already scores 60%.
+
+One thing got worse on new images: the non-lesion check wrongly refused **4.3%** of these real lesions, compared with 1.6% on HAM10000. Images from a new clinic look slightly different, and the check notices.
+
+### Our own question: ordinary phone photos and skin type (PAD-UFES-20)
+
+HAM10000 can't tell us two things that matter for a health station in Vietnam:
+
+- what happens if someone uses an ordinary phone photo instead of a dermatoscope
+- whether the tool works on darker skin
+
+So we scored the unchanged v1.1 model on [PAD-UFES-20](https://doi.org/10.1016/j.dib.2020.106221), exactly as the app predicts (`evaluate_external.py`).
+
+- **The data:** 2,298 smartphone photos of skin lesions from Brazil, taken without a dermatoscope. 1,494 of them have a Fitzpatrick skin type.
+- **Label mapping:** melanoma, BCC, actinic keratosis and SCC count as suspicious; nevus and seborrheic keratosis count as benign.
+- **No tuning:** nothing was adjusted on this data.
+
+**Phone photos: the model ranks them fairly well, but the triage is not safe.**
+
+- **Ranking:** suspicious-vs-benign AUC is **0.81** (95% CI 0.79–0.84), up from 0.65 for v1.0. That is lower than the 0.90 we get on dermatoscope images.
+- **The non-lesion check lets most of them through.** It refused only **16%** of the phone photos.
+- **Missed melanomas:** of the 43 melanoma photos the app accepted, **13 (30%) were sent to 🟢 green**. On dermatoscope images the figure is 3.5%.
+- **Other suspicious lesions:** 10% were sent to green. Of the benign lesions, 22% went to red.
+
+**Conclusion: the app must only be used with a dermatoscope.** The non-lesion check should be extended to refuse ordinary phone photos; until then, the app's instructions must say so plainly.
+
+**By Fitzpatrick skin type** (phone photos; AUC with a 95% confidence interval from resampling whole lesions):
+
+| Skin type | Photos (suspicious) | Refused | AUC | Suspicious → 🟢 green | Benign → 🔴 red |
+|---|---|---|---|---|---|
+| I–II (lighter) | 1,029 (964) | 14% | 0.81 (0.76–0.87) | 65 of 836 | 14 of 44 |
+| III | 392 (361) | 13% | 0.85 (0.77–0.91) | 27 of 317 | 4 of 24 |
+| IV–VI (darker) | 73 (47) | 18% | 0.88 (0.78–0.97) | 3 of 40 | 3 of 20 |
+
+We found **no sign that the model does worse on darker skin**, but this is weak evidence, not proof of fairness:
+
+- Only **73 photos** come from skin types IV–VI, so their confidence interval is very wide.
+- These are phone photos, not the dermatoscope images the app is meant for.
+
+That so little darker-skin data exists is itself a finding. It matters for Vietnam, where most people have skin types III–IV.
+
+**Other limitations:**
+
 - **Small training subset.** Because of the subset, our numbers aren't comparable with published full-dataset results.
 - **Class mix.** Our test sets have more melanomas (23%) than HAM10000 as a whole (11%) or a real clinic. Rates per group (e.g. "melanomas sent to green") carry over; overall accuracy would not.
 
 ## What we'd do next
 
-1. **Check fairness across skin tones** on a dataset with skin-tone labels (for example Fitzpatrick17k or Stanford DDI), and report results for each group.
-2. **Re-tune the triage thresholds for the full-data model** so that no more than ~3% of suspicious lesions go to green, then ship it.
-3. **Test on ordinary phone photos** and decide whether the non-lesion check should refuse them.
+1. **Refuse ordinary phone photos.** Our PAD-UFES-20 test showed the non-lesion check lets 84% of them through, and 30% of those melanomas go to green. We would train the check with phone photos as examples of what to refuse.
+2. **Measure fairness on darker skin with dermatoscope images.** We would use Stanford DDI, or work with a Vietnamese dermatology clinic to collect consented, de-identified images, so that skin types III–VI have enough examples to give a real answer.
+3. **Re-tune the triage thresholds for the full-data model** so that no more than ~3% of suspicious lesions go to green, then ship it.
 
 ## Sources
 
 - **Data:** Tschandl, P., Rosendahl, C. & Kittler, H. *The HAM10000 dataset, a large collection of multi-source dermatoscopic images of common pigmented skin lesions.* Sci Data 5, 180161 (2018). [Kaggle mirror](https://www.kaggle.com/datasets/kmader/skin-cancer-mnist-ham10000). Non-commercial use only.
+- **Independent test set:** ISIC 2018 Task 3 test images and ground truth, from the [HAM10000 page on Harvard Dataverse](https://doi.org/10.7910/DVN/DBW86T). Codella, N. et al. *Skin Lesion Analysis Toward Melanoma Detection 2018: A Challenge Hosted by the ISIC.* arXiv:1902.03368 (2019).
+- **Phone-photo test set:** Pacheco, A. G. C. et al. *PAD-UFES-20: a skin lesion dataset composed of patient data and clinical images collected from smartphones.* Data in Brief 32, 106221 (2020). CC BY 4.0. We used the [Hugging Face mirror](https://huggingface.co/datasets/SalmaneExploring/pad-ufes-20) of the [Mendeley Data original](https://data.mendeley.com/datasets/zr7vgbcyr2).
 - **Model:** EfficientNet-B0, Tan & Le, *EfficientNet: Rethinking Model Scaling for CNNs* (2019), with ImageNet weights from [timm](https://github.com/huggingface/pytorch-image-models).
 - **Explanations:** Selvaraju et al., *Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization* (2017).
 - **Libraries:** [PyTorch](https://pytorch.org/), [torchvision](https://pytorch.org/vision/), [scikit-learn](https://scikit-learn.org/), [pandas](https://pandas.pydata.org/), [Gradio](https://www.gradio.app/), [matplotlib](https://matplotlib.org/).
@@ -128,6 +189,8 @@ The triage tiers are deliberately cautious: they turn most of the top-1 misses i
 |---|---|
 | `train.py` | Trains the model. Writes `best.pt` (with calibration, melanoma threshold and non-lesion statistics), `metrics.json`, `test_predictions.csv` and `splits.csv`. `--splits FILE` reuses a saved split |
 | `evaluate.py` | Scores a saved model on the test images exactly the way the app predicts. `--other-photos FOLDER` also measures how many non-lesion photos are refused |
+| `evaluate_isic2018.py` | Scores the model on the official ISIC 2018 test set, the way the app predicts |
+| `evaluate_external.py` | Scores the model on PAD-UFES-20 phone photos, overall and by Fitzpatrick skin type |
 | `app.py` | Gradio web app (triage card, heatmap, probabilities, example images) |
 | `ood.py` | Non-lesion check |
 | `gradcam.py` | Grad-CAM heatmaps |

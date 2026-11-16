@@ -33,7 +33,8 @@ TIERS = {
 }
 
 DISCLAIMER = ("⚠️ **Hackathon prototype — not a medical device and not a diagnosis.** "
-              "Trained on dermatoscope images (HAM10000); phone photos may be less reliable. "
+              "**Use a dermatoscope photo only.** On ordinary phone photos our tests showed it sent "
+              "3 in 10 melanomas to low concern. "
               "If you are worried about a spot on your skin, see a doctor.")
 
 

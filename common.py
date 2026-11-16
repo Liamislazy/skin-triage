@@ -78,6 +78,40 @@ def eval_transform(img_size: int):
     ])
 
 
+def tta_views(x: torch.Tensor) -> list:
+    """Test-time augmentation: the image plus its three flips. A lesion has no "right way up",
+    so averaging the four predictions is free accuracy."""
+    return [x, x.flip(3), x.flip(2), x.flip(2, 3)]
+
+
+OOD_BLOCKS = 4  # early blocks whose statistics feed the "is this a lesion photo?" check
+
+
+def forward_with_stats(model: nn.Module, x: torch.Tensor):
+    """One forward pass that returns (logits, early-layer statistics).
+
+    The statistics are the mean and spread of every channel in the stem and the first few blocks.
+    Early layers respond to colour and texture, so these numbers look very different for a
+    dermatoscope image than for a holiday photo, whatever the classifier says. See ood.py.
+    """
+    h = model.bn1(model.conv_stem(x))
+    stats = [h.mean((2, 3)), h.std((2, 3))]
+    for i, block in enumerate(model.blocks):
+        h = block(h)
+        if i < OOD_BLOCKS:
+            stats += [h.mean((2, 3)), h.std((2, 3))]
+    h = model.bn2(model.conv_head(h))
+    logits = model.classifier(model.forward_head(h, pre_logits=True))
+    return logits, torch.cat(stats, 1)
+
+
+def probs_from_logits(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """logits: (N, C) or (N, views, C). Divides by the calibration temperature, applies softmax
+    and averages over the views."""
+    p = torch.softmax(logits.float() / temperature, dim=-1)
+    return p.mean(1) if p.dim() == 3 else p
+
+
 def load_checkpoint(path: str, device: str = "cpu"):
     """Returns (model, checkpoint dict)."""
     ckpt = torch.load(path, map_location=device, weights_only=False)

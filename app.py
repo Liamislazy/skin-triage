@@ -1,20 +1,24 @@
-"""SkinTriage v1.0 — Gradio web app.
+"""SkinTriage — Gradio web app.
 
     python app.py --checkpoint model/best.pt          # local
     python app.py --checkpoint model/best.pt --share  # public link for the demo
 """
 import argparse
+from pathlib import Path
 
 import gradio as gr
 import torch
 from PIL import Image
 
-from common import (CLASS_NAMES, SUSPICIOUS, eval_transform, gradcam_layer, load_checkpoint,
-                    triage_tier)
+import ood
+from common import (CLASS_NAMES, SUSPICIOUS, eval_transform, forward_with_stats, gradcam_layer,
+                    load_checkpoint, probs_from_logits, triage_tier, tta_views)
 from gradcam import GradCAM, overlay
 
 # The red/amber/green thresholds live in common.py
 UNSURE = 0.50             # top-class probability below this = model is unsure
+MIN_SIDE = 100            # photos smaller than this (pixels) are too small to judge
+EXAMPLES_DIR = Path(__file__).parent / "examples"
 
 TIERS = {
     "red": ("#c62828", "See a dermatologist soon",
@@ -40,17 +44,35 @@ class Triage:
         self.classes = ckpt["classes"]
         self.img_size = ckpt["img_size"]
         self.mel_threshold = ckpt.get("mel_threshold", 0.30)
+        # Older checkpoints don't have the next three; fall back to plain behaviour
+        self.temperature = ckpt.get("temperature", 1.0)   # calibration (see train.fit_temperature)
+        self.tta = ckpt.get("tta", False)                 # average over flips
+        self.ood = ckpt.get("ood")                        # "is this a lesion photo?" statistics
         self.transform = eval_transform(self.img_size)
         self.cam = GradCAM(self.model, gradcam_layer(self.model))
 
     def analyze(self, image: Image.Image) -> dict:
         image = image.convert("RGB")
+        if min(image.size) < MIN_SIDE:
+            return {"rejected": f"The photo is too small ({image.width}×{image.height} pixels). "
+                                f"Use a sharper, closer photo."}
         x = self.transform(image).unsqueeze(0).to(self.device)
-        heat, probs, explained = self.cam(x)
-        p = dict(zip(self.classes, map(float, probs)))
+        with torch.no_grad():
+            outs = [forward_with_stats(self.model, v) for v in (tta_views(x) if self.tta else [x])]
+        if self.ood is not None and ood.is_ood(outs[0][1].cpu().numpy(), self.ood)[0]:
+            return {"rejected": "This doesn't look like the close-up dermatoscope photos the model "
+                                "learned from, so any answer would be a guess. Retake the photo: "
+                                "one lesion, centered, in focus, filling most of the frame."}
+        probs = probs_from_logits(torch.stack([o[0] for o in outs], 1), self.temperature)[0]
+        p = dict(zip(self.classes, map(float, probs.cpu())))
 
         p_susp = sum(p[c] for c in SUSPICIOUS)
         tier = triage_tier(p, self.mel_threshold)
+        top = max(p, key=p.get)
+        # Explain the class behind the advice: if the app raises an alert while the single most
+        # likely type is benign, show what made the model worry, not the benign guess
+        explained = top if tier == "green" or top in SUSPICIOUS else max(SUSPICIOUS, key=p.get)
+        heat, _, _ = self.cam(x, self.classes.index(explained))
 
         # The model sees a centered square crop; show the heatmap on that same crop
         w, h = image.size
@@ -59,14 +81,22 @@ class Triage:
         crop = crop.resize((448, 448), Image.BICUBIC)
 
         return {
+            "rejected": None,
             "tier": tier,
             "probs": p,
             "p_suspicious": p_susp,
-            "top": max(p, key=p.get),
+            "top": top,
             "unsure": max(p.values()) < UNSURE,
-            "explained": self.classes[explained],
+            "explained": explained,
             "heatmap": overlay(crop, heat),
         }
+
+
+def rejected_card(reason: str) -> str:
+    return ("<div style='border-left:8px solid #616161;padding:14px 18px;border-radius:8px;"
+            "background:#61616114'>"
+            "<div style='font-size:1.5em;font-weight:700;color:#616161'>Can't assess this image</div>"
+            f"<p style='margin:6px 0 0'>{reason}</p></div>")
 
 
 def risk_card(r: dict) -> str:
@@ -84,10 +114,12 @@ def risk_card(r: dict) -> str:
 def build_ui(triage: Triage) -> gr.Blocks:
     def run(image):
         if image is None:
-            raise gr.Error("Upload a photo of the skin lesion first.")
+            return "", None, None, ""
         r = triage.analyze(image)
+        if r["rejected"]:
+            return rejected_card(r["rejected"]), None, None, ""
         label = {CLASS_NAMES[c]: v for c, v in r["probs"].items()}
-        why = (f"The heatmap shows where the model looked when it predicted "
+        why = (f"The heatmap shows which parts of the image pushed the model towards "
                f"**{CLASS_NAMES[r['explained']]}**. Red = most influential. If the red area is "
                f"not on the lesion (e.g. on hair, a ruler, or the image border), don't trust the result.")
         return risk_card(r), r["heatmap"], label, why
@@ -102,12 +134,16 @@ def build_ui(triage: Triage) -> gr.Blocks:
                 btn = gr.Button("Analyze", variant="primary")
             with gr.Column():
                 card = gr.HTML()
-                heat = gr.Image(label="Where the model looked (Grad-CAM)", height=380)
+                heat = gr.Image(label="What drove the result (Grad-CAM)", height=380)
         with gr.Row():
             probs = gr.Label(num_top_classes=3, label="Most likely lesion types")
             why = gr.Markdown()
-        btn.click(run, inp, [card, heat, probs, why], api_name="analyze")
-        inp.upload(run, inp, [card, heat, probs, why])
+        outputs = [card, heat, probs, why]
+        btn.click(run, inp, outputs, api_name="analyze")
+        inp.change(run, inp, outputs, api_name=False)   # also runs on upload and on example click
+        examples = sorted(str(p) for p in EXAMPLES_DIR.glob("*.jpg"))
+        if examples:
+            gr.Examples(examples, inp, label="Try a test-set image (the model never trained on these)")
     return demo
 
 
